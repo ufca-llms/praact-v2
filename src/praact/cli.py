@@ -56,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Torch dtype used to load the model.",
     )
+    expand_parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "mps", "cuda"],
+        default="auto",
+        help="Execution device used to load and update the model.",
+    )
 
     decode_parser = subparsers.add_parser(
         "decode",
@@ -92,6 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Torch dtype used to load the model.",
     )
+    decode_parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "mps", "cuda"],
+        default="auto",
+        help="Execution device used during generation.",
+    )
     return parser
 
 
@@ -107,7 +119,12 @@ def run_expand(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     output_dir = build_output_dir(args.model_id, args.output_dir)
 
     try:
-        result = add_missing_keywords_to_model(args.model_id, keywords, dtype=args.dtype)
+        result = add_missing_keywords_to_model(
+            args.model_id,
+            keywords,
+            dtype=args.dtype,
+            device=args.device,
+        )
     except Exception as exc:
         parser.error(str(exc))
 
@@ -141,7 +158,11 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         parser.error("--output-json is required when using --input-json.")
 
     try:
-        loaded = load_model_for_decoding(args.model_path, dtype=args.dtype)
+        loaded = load_model_for_decoding(
+            args.model_path,
+            dtype=args.dtype,
+            device=args.device,
+        )
     except FileNotFoundError as exc:
         parser.error(str(exc))
     except ValueError as exc:

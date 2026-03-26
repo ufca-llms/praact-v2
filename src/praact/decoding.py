@@ -11,6 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import LogitsProcessor
 from transformers import LogitsProcessorList
 
+from praact.model_expansion import resolve_device
 from praact.model_expansion import resolve_torch_dtype
 
 
@@ -115,18 +116,25 @@ def generate_hypothesis(
     return decode_generated_token_ids(generated_token_ids, token_id_to_keyword)
 
 
-def load_model_for_decoding(model_path: Path, dtype: str = "auto") -> dict[str, Any]:
+def load_model_for_decoding(
+    model_path: Path,
+    dtype: str = "auto",
+    device: str = "auto",
+) -> dict[str, Any]:
+    resolved_device = resolve_device(device)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=resolve_torch_dtype(dtype),
     )
+    model = model.to(resolved_device)
     metadata = load_praact_vocab_metadata(model_path)
 
     return {
         "tokenizer": tokenizer,
         "model": model,
         "metadata": metadata,
+        "device": resolved_device,
     }
 
 

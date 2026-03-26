@@ -94,6 +94,30 @@ def resolve_torch_dtype(dtype: str) -> torch.dtype | str:
     raise ValueError(f"Unsupported dtype: {dtype}")
 
 
+def resolve_device(device: str) -> str:
+    if device == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise ValueError("CUDA was requested, but no CUDA device is available.")
+        return "cuda"
+
+    if device == "mps":
+        if not torch.backends.mps.is_available():
+            raise ValueError("MPS was requested, but MPS is not available.")
+        return "mps"
+
+    if device == "cpu":
+        return "cpu"
+
+    raise ValueError(f"Unsupported device: {device}")
+
+
 def build_praact_vocab_metadata(
     tokenizer: Any,
     keywords: list[str],
@@ -151,12 +175,15 @@ def add_missing_keywords_to_model(
     model_id: str,
     keywords: list[str],
     dtype: str = "auto",
+    device: str = "auto",
 ) -> dict[str, Any]:
+    resolved_device = resolve_device(device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=resolve_torch_dtype(dtype),
     )
+    model = model.to(resolved_device)
 
     original_vocab = tokenizer.get_vocab()
     input_embeddings = model.get_input_embeddings()
@@ -228,4 +255,5 @@ def add_missing_keywords_to_model(
         "existing_keywords": [
             keyword for keyword in keywords if keyword not in set(missing_keywords)
         ],
+        "device": resolved_device,
     }
