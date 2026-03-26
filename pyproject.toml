@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "praact"
+version = "0.1.0"
+description = "Command-line tools for Praact."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Praact contributors" }
+]
+dependencies = [
+  "torch>=2.1",
+  "transformers>=4.40",
+]
+
+[project.scripts]
+praact = "praact.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
