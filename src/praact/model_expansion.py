@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -119,36 +120,50 @@ def resolve_device(device: str) -> str:
 
 
 def build_praact_vocab_metadata(
-    tokenizer: Any,
     keywords: list[str],
     added_keywords: list[str],
     model_id: str,
+    keyword_to_token_id: dict[str, int],
 ) -> dict[str, Any]:
     added_keyword_set = set(added_keywords)
     added_token_ids: list[int] = []
     existing_token_ids: list[int] = []
-    keyword_to_token_id: dict[str, int] = {}
 
     for keyword in keywords:
-        token_id = tokenizer.convert_tokens_to_ids(keyword)
-        if token_id is None or token_id < 0:
-            raise ValueError(f"Tokenizer did not return a valid id for {keyword!r}.")
-
-        keyword_to_token_id[keyword] = token_id
+        token_id = keyword_to_token_id[keyword]
         if keyword in added_keyword_set:
             added_token_ids.append(token_id)
         else:
             existing_token_ids.append(token_id)
 
     allowed_token_ids = existing_token_ids + added_token_ids
+    generation_token_ids: list[int] = []
+
+    for keyword in keywords:
+        if not is_generation_keyword(keyword):
+            continue
+        generation_token_ids.append(keyword_to_token_id[keyword])
 
     return {
         "model_id": model_id,
         "added_token_ids": added_token_ids,
         "existing_token_ids": existing_token_ids,
         "allowed_token_ids": allowed_token_ids,
+        "generation_token_ids": generation_token_ids,
         "keyword_to_token_id": keyword_to_token_id,
     }
+
+
+def is_generation_keyword(keyword: str) -> bool:
+    denormalized = denormalize_keyword(keyword).strip()
+    if not denormalized:
+        return False
+
+    for character in denormalized:
+        if unicodedata.category(character).startswith("L"):
+            return True
+
+    return False
 
 
 def save_praact_vocab_metadata(output_dir: Path, metadata: dict[str, Any]) -> Path:
@@ -171,6 +186,22 @@ def compute_mean_embedding(
     return subtoken_embeddings.mean(dim=0)
 
 
+def resolve_existing_token_id(tokenizer: Any, keyword: str) -> int | None:
+    surface_form = denormalize_keyword(keyword)
+    candidate_texts = [f" {surface_form}", surface_form]
+
+    for candidate_text in candidate_texts:
+        token_ids = tokenizer.encode(candidate_text, add_special_tokens=False)
+        if len(token_ids) == 1:
+            return int(token_ids[0])
+
+    literal_token_id = tokenizer.convert_tokens_to_ids(keyword)
+    if literal_token_id is not None and literal_token_id >= 0:
+        return int(literal_token_id)
+
+    return None
+
+
 def add_missing_keywords_to_model(
     model_id: str,
     keywords: list[str],
@@ -185,7 +216,6 @@ def add_missing_keywords_to_model(
     )
     model = model.to(resolved_device)
 
-    original_vocab = tokenizer.get_vocab()
     input_embeddings = model.get_input_embeddings()
     if input_embeddings is None:
         raise ValueError("The model does not expose an input embedding layer.")
@@ -197,10 +227,15 @@ def add_missing_keywords_to_model(
         output_embedding_weights = output_embeddings.weight.detach().clone()
 
     missing_keywords: list[str] = []
+    existing_keywords: list[str] = []
     initialization_token_ids: dict[str, list[int]] = {}
+    keyword_to_token_id: dict[str, int] = {}
 
     for keyword in keywords:
-        if keyword in original_vocab:
+        existing_token_id = resolve_existing_token_id(tokenizer, keyword)
+        if existing_token_id is not None:
+            keyword_to_token_id[keyword] = existing_token_id
+            existing_keywords.append(keyword)
             continue
 
         subtoken_ids = tokenizer.encode(
@@ -234,6 +269,7 @@ def add_missing_keywords_to_model(
             token_id = tokenizer.convert_tokens_to_ids(keyword)
             if token_id is None or token_id < 0:
                 raise ValueError(f"Tokenizer did not return a valid id for {keyword!r}.")
+            keyword_to_token_id[keyword] = int(token_id)
 
             mean_input_embedding = compute_mean_embedding(
                 initialization_token_ids[keyword],
@@ -252,8 +288,7 @@ def add_missing_keywords_to_model(
         "tokenizer": tokenizer,
         "model": model,
         "missing_keywords": missing_keywords,
-        "existing_keywords": [
-            keyword for keyword in keywords if keyword not in set(missing_keywords)
-        ],
+        "existing_keywords": existing_keywords,
+        "keyword_to_token_id": keyword_to_token_id,
         "device": resolved_device,
     }

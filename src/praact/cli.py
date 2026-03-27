@@ -10,6 +10,7 @@ from pathlib import Path
 from praact.decoding import build_reverse_keyword_lookup
 from praact.decoding import generate_from_dataset
 from praact.decoding import generate_hypothesis
+from praact.decoding import inspect_first_step
 from praact.decoding import load_generation_dataset
 from praact.decoding import load_model_for_decoding
 from praact.decoding import save_generation_outputs
@@ -104,6 +105,22 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Execution device used during generation.",
     )
+    decode_parser.add_argument(
+        "--chat-template",
+        action="store_true",
+        help="Format the prompt with tokenizer.apply_chat_template().",
+    )
+    decode_parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.1,
+        help="Penalty applied to repeated generated tokens.",
+    )
+    decode_parser.add_argument(
+        "--debug-first-step",
+        action="store_true",
+        help="Print first-step logits before and after masking.",
+    )
     return parser
 
 
@@ -132,10 +149,10 @@ def run_expand(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     result["tokenizer"].save_pretrained(output_dir)
     result["model"].save_pretrained(output_dir)
     vocab_metadata = build_praact_vocab_metadata(
-        tokenizer=result["tokenizer"],
         keywords=keywords,
         added_keywords=result["missing_keywords"],
         model_id=args.model_id,
+        keyword_to_token_id=result["keyword_to_token_id"],
     )
     vocab_metadata_path = save_praact_vocab_metadata(output_dir, vocab_metadata)
 
@@ -177,6 +194,18 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     token_id_to_keyword = build_reverse_keyword_lookup(metadata["keyword_to_token_id"])
 
     if args.prompt:
+        if args.debug_first_step:
+            debug_info = inspect_first_step(
+                model=model,
+                tokenizer=tokenizer,
+                prompt=args.prompt,
+                allowed_token_ids=allowed_token_ids,
+                use_chat_template=args.chat_template,
+            )
+            json.dump(debug_info, fp=sys.stdout, ensure_ascii=False, indent=2)
+            sys.stdout.write("\n")
+            return 0
+
         hypothesis = generate_hypothesis(
             model=model,
             tokenizer=tokenizer,
@@ -184,6 +213,8 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             allowed_token_ids=allowed_token_ids,
             token_id_to_keyword=token_id_to_keyword,
             max_new_tokens=args.max_new_tokens,
+            use_chat_template=args.chat_template,
+            repetition_penalty=args.repetition_penalty,
         )
         sys.stdout.write(f"{hypothesis}\n")
         return 0
@@ -197,6 +228,8 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             allowed_token_ids=allowed_token_ids,
             token_id_to_keyword=token_id_to_keyword,
             max_new_tokens=args.max_new_tokens,
+            use_chat_template=args.chat_template,
+            repetition_penalty=args.repetition_penalty,
         )
     except FileNotFoundError as exc:
         parser.error(str(exc))
