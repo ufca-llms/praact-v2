@@ -12,7 +12,9 @@ authors = [
   { name = "Praact contributors" }
 ]
 dependencies = [
+  "sacrebleu>=2.4",
   "torch>=2.1",
+  "tqdm>=4.66",
   "transformers>=4.40",
 ]
 

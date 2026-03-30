@@ -13,7 +13,10 @@ from praact.decoding import generate_hypothesis
 from praact.decoding import inspect_first_step
 from praact.decoding import load_generation_dataset
 from praact.decoding import load_model_for_decoding
+from praact.decoding import load_prompt_template
+from praact.decoding import render_prompt
 from praact.decoding import save_generation_outputs
+from praact.evaluation import evaluate_predictions
 from praact.model_expansion import add_missing_keywords_to_model
 from praact.model_expansion import build_output_dir
 from praact.model_expansion import build_praact_vocab_metadata
@@ -78,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Single input prompt to complete.",
     )
     decode_parser.add_argument(
+        "--prompt-file",
+        type=Path,
+        help="Path to a prompt template file. Use {sentence} as placeholder.",
+    )
+    decode_parser.add_argument(
         "--input-json",
         type=Path,
         help="JSON dataset with items containing 'id' and 'src'.",
@@ -120,6 +128,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug-first-step",
         action="store_true",
         help="Print first-step logits before and after masking.",
+    )
+    decode_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Batch size used for dataset generation.",
+    )
+
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Evaluate predictions with ImageCLEF ToPicto style metrics.",
+    )
+    evaluate_parser.add_argument(
+        "predictions_json",
+        type=Path,
+        help="Path to a JSON file with predictions containing 'id' and 'hyp'.",
+    )
+    evaluate_parser.add_argument(
+        "references_json",
+        type=Path,
+        help="Path to a JSON file with references containing 'id' and 'tgt'.",
     )
     return parser
 
@@ -173,6 +202,15 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
 
     if args.input_json and args.output_json is None:
         parser.error("--output-json is required when using --input-json.")
+    if args.batch_size < 1:
+        parser.error("--batch-size must be at least 1.")
+
+    prompt_template = None
+    if args.prompt_file is not None:
+        try:
+            prompt_template = load_prompt_template(args.prompt_file)
+        except FileNotFoundError as exc:
+            parser.error(str(exc))
 
     try:
         loaded = load_model_for_decoding(
@@ -194,11 +232,13 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     token_id_to_keyword = build_reverse_keyword_lookup(metadata["keyword_to_token_id"])
 
     if args.prompt:
+        final_prompt = render_prompt(prompt_template, args.prompt) if prompt_template else args.prompt
+
         if args.debug_first_step:
             debug_info = inspect_first_step(
                 model=model,
                 tokenizer=tokenizer,
-                prompt=args.prompt,
+                prompt=final_prompt,
                 allowed_token_ids=allowed_token_ids,
                 use_chat_template=args.chat_template,
             )
@@ -209,7 +249,7 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         hypothesis = generate_hypothesis(
             model=model,
             tokenizer=tokenizer,
-            prompt=args.prompt,
+            prompt=final_prompt,
             allowed_token_ids=allowed_token_ids,
             token_id_to_keyword=token_id_to_keyword,
             max_new_tokens=args.max_new_tokens,
@@ -221,6 +261,14 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
 
     try:
         dataset = load_generation_dataset(args.input_json)
+        if prompt_template is not None:
+            dataset = [
+                {
+                    **item,
+                    "src": render_prompt(prompt_template, item["src"]),
+                }
+                for item in dataset
+            ]
         outputs = generate_from_dataset(
             model=model,
             tokenizer=tokenizer,
@@ -230,6 +278,7 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             max_new_tokens=args.max_new_tokens,
             use_chat_template=args.chat_template,
             repetition_penalty=args.repetition_penalty,
+            batch_size=args.batch_size,
         )
     except FileNotFoundError as exc:
         parser.error(str(exc))
@@ -244,6 +293,19 @@ def run_decode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     return 0
 
 
+def run_evaluate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    try:
+        metrics = evaluate_predictions(args.predictions_json, args.references_json)
+    except FileNotFoundError as exc:
+        parser.error(str(exc))
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    json.dump(metrics, fp=sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -253,6 +315,9 @@ def main() -> int:
 
     if args.command == "decode":
         return run_decode(args, parser)
+
+    if args.command == "evaluate":
+        return run_evaluate(args, parser)
 
     parser.error(f"Unknown command: {args.command}")
     return 1

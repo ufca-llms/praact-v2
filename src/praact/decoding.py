@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import LogitsProcessor
 from transformers import LogitsProcessorList
@@ -70,6 +71,23 @@ def load_generation_dataset(dataset_path: Path) -> list[dict[str, Any]]:
             raise ValueError("Each dataset item must include 'id' and 'src'.")
 
     return payload
+
+
+def load_prompt_template(prompt_path: Path) -> str:
+    with prompt_path.open(encoding="utf-8") as file:
+        return file.read().strip()
+
+
+def render_prompt(template: str, sentence: str | None = None) -> str:
+    if "{sentence}" in template:
+        if sentence is None:
+            raise ValueError("Prompt template requires a sentence, but none was provided.")
+        return template.replace("{sentence}", sentence)
+
+    if sentence is None:
+        return template
+
+    return sentence
 
 
 def build_reverse_keyword_lookup(keyword_to_token_id: dict[str, int]) -> dict[int, str]:
@@ -235,6 +253,60 @@ def generate_hypothesis(
     return decode_generated_token_ids(generated_token_ids, token_id_to_keyword)
 
 
+def chunk_list(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
+    return [items[index : index + batch_size] for index in range(0, len(items), batch_size)]
+
+
+def generate_hypotheses_batch(
+    model: Any,
+    tokenizer: Any,
+    prompts: list[str],
+    allowed_token_ids: list[int],
+    token_id_to_keyword: dict[int, str],
+    max_new_tokens: int,
+    use_chat_template: bool = False,
+    repetition_penalty: float = 1.1,
+) -> list[str]:
+    device = model.device
+    formatted_prompts = [
+        format_prompt_for_generation(
+            tokenizer=tokenizer,
+            prompt=prompt,
+            use_chat_template=use_chat_template,
+        )
+        for prompt in prompts
+    ]
+
+    encoded_batch = tokenizer(
+        formatted_prompts,
+        return_tensors="pt",
+        padding=True,
+    )
+    encoded_batch = {name: tensor.to(device) for name, tensor in encoded_batch.items()}
+    prompt_lengths = encoded_batch["attention_mask"].sum(dim=1).tolist()
+    logits_processor = build_generation_logits_processor(tokenizer, allowed_token_ids)
+
+    with torch.no_grad():
+        generated = model.generate(
+            **encoded_batch,
+            max_new_tokens=max_new_tokens,
+            logits_processor=logits_processor,
+            do_sample=False,
+            repetition_penalty=repetition_penalty,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+
+    hypotheses: list[str] = []
+    for row_index, prompt_length in enumerate(prompt_lengths):
+        generated_token_ids = generated[row_index, int(prompt_length) :].tolist()
+        hypotheses.append(
+            decode_generated_token_ids(generated_token_ids, token_id_to_keyword)
+        )
+
+    return hypotheses
+
+
 def load_model_for_decoding(
     model_path: Path,
     dtype: str = "auto",
@@ -242,6 +314,13 @@ def load_model_for_decoding(
 ) -> dict[str, Any]:
     resolved_device = resolve_device(device)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        if tokenizer.eos_token is None:
+            raise ValueError(
+                "Tokenizer has no pad_token_id and no eos_token to reuse as padding."
+            )
+        tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=resolve_torch_dtype(dtype),
@@ -266,21 +345,28 @@ def generate_from_dataset(
     max_new_tokens: int,
     use_chat_template: bool = False,
     repetition_penalty: float = 1.1,
+    batch_size: int = 1,
 ) -> list[dict[str, str]]:
     outputs: list[dict[str, str]] = []
+    batches = chunk_list(dataset, batch_size)
+    print(f"Processing {len(dataset)} samples in {len(batches)} batches..., bs={batch_size}")
 
-    for item in dataset:
-        hypothesis = generate_hypothesis(
-            model=model,
-            tokenizer=tokenizer,
-            prompt=item["src"],
-            allowed_token_ids=allowed_token_ids,
-            token_id_to_keyword=token_id_to_keyword,
-            max_new_tokens=max_new_tokens,
-            use_chat_template=use_chat_template,
-            repetition_penalty=repetition_penalty,
-        )
-        outputs.append({"id": item["id"], "hyp": hypothesis})
+    with tqdm(total=len(batches), desc="Generating", unit="batch") as progress:
+        for batch in batches:
+            prompts = [item["src"] for item in batch]
+            hypotheses = generate_hypotheses_batch(
+                model=model,
+                tokenizer=tokenizer,
+                prompts=prompts,
+                allowed_token_ids=allowed_token_ids,
+                token_id_to_keyword=token_id_to_keyword,
+                max_new_tokens=max_new_tokens,
+                use_chat_template=use_chat_template,
+                repetition_penalty=repetition_penalty,
+            )
+            for item, hypothesis in zip(batch, hypotheses, strict=False):
+                outputs.append({"id": item["id"], "hyp": hypothesis})
+            progress.update(1)
 
     return outputs
 

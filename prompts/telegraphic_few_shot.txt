@@ -1,0 +1,15 @@
+Transform each sentence into a telegraphic sentence used in Augmentative and Alternative Communication.
+Use short content words only.
+Avoid articles, auxiliary verbs, and unnecessary function words.
+
+Sentence: I ate a cake at school yesterday.
+Telegraphic: I eat cake school yesterday
+
+Sentence: They are attacked by a bird.
+Telegraphic: they attack bird
+
+Sentence: a part of this production is exported by plane.
+Telegraphic: a piece_of of the production export because_of aeroplane
+
+Sentence: {sentence}
+Telegraphic:
