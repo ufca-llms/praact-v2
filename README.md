@@ -24,6 +24,37 @@ Para treinamento, instale as dependencias extras:
 .venv312/bin/python -m pip install -r requirements-training.txt
 ```
 
+## Dados
+
+Os arquivos de dados usados nos experimentos podem ser baixados a partir da release `data` do repositorio:
+
+- [Release `data`](https://github.com/ufca-llms/praact-v2/releases/tag/data)
+
+O jeito mais simples e usar o script:
+
+```bash
+bash scripts/download_release_data.sh
+```
+
+Se quiser extrair para outro diretorio:
+
+```bash
+bash scripts/download_release_data.sh /caminho/para/dados
+```
+
+O script usa `curl` para baixar os assets da release `data` e extrai automaticamente arquivos `.zip` e `.tar.gz`.
+
+Depois disso, o repositorio espera caminhos como:
+
+- `data/arasaac_en.json`
+- `data/starting kit text2picto/train.json`
+- `data/starting kit text2picto/valid.json`
+- `data/starting kit text2picto/test.json`
+- `data/ImageCLEF2026_NextPictogramPredicti/train_next_picto.json`
+- `data/ImageCLEF2026_NextPictogramPredicti/test_next_picto.json`
+
+Se os arquivos forem extraidos em outro lugar, ajuste os caminhos dos comandos no README para apontar para a localizacao correta.
+
 ## Como funciona
 
 O PRAACT parte da ideia de adaptar um modelo de linguagem causal para operar com um vocabulario de Comunicacao Aumentativa e Alternativa (CAA). Em vez de gerar livremente no vocabulario completo do modelo original, o sistema passa a trabalhar com um conjunto de keywords e termos pictograficos extraidos do acervo do Praact.
