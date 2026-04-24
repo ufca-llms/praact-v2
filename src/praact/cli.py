@@ -301,6 +301,19 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Use CPU explicitly or leave device selection to Trainer.",
     )
+    train_parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging during training.",
+    )
+    train_parser.add_argument(
+        "--wandb-project",
+        help="Optional WANDB_PROJECT value used when --wandb is enabled.",
+    )
+    train_parser.add_argument(
+        "--run-name",
+        help="Optional training run name.",
+    )
 
     evaluate_parser = subparsers.add_parser(
         "evaluate",
@@ -503,6 +516,9 @@ def run_train(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             use_cpu=(args.device == "cpu"),
             max_train_samples=args.max_train_samples,
             max_eval_samples=args.max_eval_samples,
+            report_to="wandb" if args.wandb else "none",
+            run_name=args.run_name,
+            wandb_project=args.wandb_project,
         )
     except FileNotFoundError as exc:
         parser.error(str(exc))

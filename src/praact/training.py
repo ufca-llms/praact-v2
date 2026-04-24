@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -295,6 +296,9 @@ def train_model(
     use_cpu: bool,
     max_train_samples: int | None,
     max_eval_samples: int | None,
+    report_to: str | None,
+    run_name: str | None,
+    wandb_project: str | None,
 ) -> Path:
     prompt_template = None
     if prompt_file is not None:
@@ -351,6 +355,9 @@ def train_model(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if wandb_project is not None:
+        os.environ["WANDB_PROJECT"] = wandb_project
+
     effective_batch_size = per_device_train_batch_size * gradient_accumulation_steps
     steps_per_epoch = max(1, math.ceil(len(train_dataset) / effective_batch_size))
     total_training_steps = max(1, math.ceil(num_train_epochs * steps_per_epoch))
@@ -374,7 +381,8 @@ def train_model(
         learning_rate=learning_rate,
         weight_decay=weight_decay,
         warmup_steps=warmup_steps,
-        report_to="none",
+        report_to=report_to or "none",
+        run_name=run_name,
         remove_unused_columns=False,
         seed=seed,
         bf16=(dtype == "bf16"),
