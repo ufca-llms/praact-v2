@@ -1,0 +1,5 @@
+Predict the next pictogram term in the sequence below.
+Return only the next pictogram term.
+
+Sequence: {sentence}
+Next pictogram:

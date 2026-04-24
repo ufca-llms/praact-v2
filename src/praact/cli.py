@@ -24,6 +24,7 @@ from praact.model_expansion import deduplicate_keywords
 from praact.model_expansion import extract_keywords
 from praact.model_expansion import load_items
 from praact.model_expansion import save_praact_vocab_metadata
+from praact.training import train_model
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -134,6 +135,171 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Batch size used for dataset generation.",
+    )
+
+    train_parser = subparsers.add_parser(
+        "train",
+        help="Supervised fine-tuning on src->tgt examples.",
+    )
+    train_parser.add_argument(
+        "model_path",
+        type=Path,
+        help="Path to the expanded model directory used as the training base.",
+    )
+    train_parser.add_argument(
+        "--train-json",
+        type=Path,
+        required=True,
+        help="JSON file containing supervised examples with 'src' and 'tgt'.",
+    )
+    train_parser.add_argument(
+        "--valid-json",
+        type=Path,
+        help="Optional validation JSON file with 'src' and 'tgt'.",
+    )
+    train_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Directory where the trained checkpoint will be saved.",
+    )
+    train_parser.add_argument(
+        "--prompt-file",
+        type=Path,
+        help="Prompt template file used during supervised formatting. Use {sentence}.",
+    )
+    train_parser.add_argument(
+        "--chat-template",
+        action="store_true",
+        help="Wrap training examples with tokenizer.apply_chat_template().",
+    )
+    train_parser.add_argument(
+        "--dtype",
+        choices=["auto", "fp16", "bf16", "fp32"],
+        default="fp32",
+        help="Torch dtype used to load the model for training.",
+    )
+    train_parser.add_argument(
+        "--max-length",
+        type=int,
+        default=512,
+        help="Maximum tokenized sequence length used for training.",
+    )
+    train_parser.add_argument(
+        "--epochs",
+        type=float,
+        default=1.0,
+        help="Number of training epochs.",
+    )
+    train_parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=2e-4,
+        help="Learning rate used by Trainer.",
+    )
+    train_parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.0,
+        help="Weight decay used by Trainer.",
+    )
+    train_parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=0.03,
+        help="Warmup ratio used by Trainer.",
+    )
+    train_parser.add_argument(
+        "--per-device-train-batch-size",
+        type=int,
+        default=4,
+        help="Per-device training batch size.",
+    )
+    train_parser.add_argument(
+        "--per-device-eval-batch-size",
+        type=int,
+        default=4,
+        help="Per-device evaluation batch size.",
+    )
+    train_parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=4,
+        help="Gradient accumulation steps.",
+    )
+    train_parser.add_argument(
+        "--logging-steps",
+        type=int,
+        default=10,
+        help="Logging interval in steps.",
+    )
+    train_parser.add_argument(
+        "--eval-steps",
+        type=int,
+        default=200,
+        help="Evaluation interval in steps.",
+    )
+    train_parser.add_argument(
+        "--save-steps",
+        type=int,
+        default=200,
+        help="Checkpoint save interval in steps.",
+    )
+    train_parser.add_argument(
+        "--save-total-limit",
+        type=int,
+        default=2,
+        help="Maximum number of checkpoints kept on disk.",
+    )
+    train_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed used during training.",
+    )
+    train_parser.add_argument(
+        "--max-train-samples",
+        type=int,
+        help="Optional cap on the number of training examples, useful for local smoke tests.",
+    )
+    train_parser.add_argument(
+        "--max-eval-samples",
+        type=int,
+        help="Optional cap on the number of validation examples.",
+    )
+    train_parser.add_argument(
+        "--full-finetune",
+        action="store_true",
+        help="Disable LoRA and fine-tune all model parameters.",
+    )
+    train_parser.add_argument(
+        "--lora-r",
+        type=int,
+        default=16,
+        help="LoRA rank.",
+    )
+    train_parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=32,
+        help="LoRA alpha.",
+    )
+    train_parser.add_argument(
+        "--lora-dropout",
+        type=float,
+        default=0.05,
+        help="LoRA dropout.",
+    )
+    train_parser.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="Enable gradient checkpointing during training.",
+    )
+    train_parser.add_argument(
+        "--device",
+        choices=["auto", "cpu"],
+        default="auto",
+        help="Use CPU explicitly or leave device selection to Trainer.",
     )
 
     evaluate_parser = subparsers.add_parser(
@@ -306,6 +472,49 @@ def run_evaluate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
     return 0
 
 
+def run_train(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    try:
+        output_dir = train_model(
+            model_path=args.model_path,
+            output_dir=args.output_dir,
+            train_json=args.train_json,
+            valid_json=args.valid_json,
+            prompt_file=args.prompt_file,
+            use_chat_template=args.chat_template,
+            dtype=args.dtype,
+            max_length=args.max_length,
+            num_train_epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            warmup_ratio=args.warmup_ratio,
+            per_device_train_batch_size=args.per_device_train_batch_size,
+            per_device_eval_batch_size=args.per_device_eval_batch_size,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            logging_steps=args.logging_steps,
+            eval_steps=args.eval_steps,
+            save_steps=args.save_steps,
+            save_total_limit=args.save_total_limit,
+            seed=args.seed,
+            use_lora=not args.full_finetune,
+            lora_r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            gradient_checkpointing=args.gradient_checkpointing,
+            use_cpu=(args.device == "cpu"),
+            max_train_samples=args.max_train_samples,
+            max_eval_samples=args.max_eval_samples,
+        )
+    except FileNotFoundError as exc:
+        parser.error(str(exc))
+    except ValueError as exc:
+        parser.error(str(exc))
+    except Exception as exc:
+        parser.error(str(exc))
+
+    sys.stdout.write(f"{output_dir}\n")
+    return 0
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -318,6 +527,9 @@ def main() -> int:
 
     if args.command == "evaluate":
         return run_evaluate(args, parser)
+
+    if args.command == "train":
+        return run_train(args, parser)
 
     parser.error(f"Unknown command: {args.command}")
     return 1

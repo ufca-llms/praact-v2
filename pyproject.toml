@@ -18,6 +18,12 @@ dependencies = [
   "transformers>=4.40",
 ]
 
+[project.optional-dependencies]
+training = [
+  "accelerate>=1.0",
+  "peft>=0.13",
+]
+
 [project.scripts]
 praact = "praact.cli:main"
 

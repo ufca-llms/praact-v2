@@ -46,7 +46,6 @@ def load_praact_vocab_metadata(model_path: Path) -> dict[str, Any]:
         "added_token_ids",
         "existing_token_ids",
         "allowed_token_ids",
-        "generation_token_ids",
         "keyword_to_token_id",
     }
     missing_keys = required_keys - metadata.keys()
@@ -54,7 +53,19 @@ def load_praact_vocab_metadata(model_path: Path) -> dict[str, Any]:
         missing = ", ".join(sorted(missing_keys))
         raise ValueError(f"praact_vocab.json is missing required keys: {missing}.")
 
+    if "generation_token_ids" not in metadata:
+        metadata["generation_token_ids"] = list(metadata["allowed_token_ids"])
+
     return metadata
+
+
+def load_adapter_config(model_path: Path) -> dict[str, Any] | None:
+    adapter_config_path = model_path / "adapter_config.json"
+    if not adapter_config_path.exists():
+        return None
+
+    with adapter_config_path.open(encoding="utf-8") as file:
+        return json.load(file)
 
 
 def load_generation_dataset(dataset_path: Path) -> list[dict[str, Any]]:
@@ -313,6 +324,14 @@ def load_model_for_decoding(
     device: str = "auto",
 ) -> dict[str, Any]:
     resolved_device = resolve_device(device)
+    adapter_config = load_adapter_config(model_path)
+    base_model_path = model_path
+    if adapter_config is not None:
+        base_model_name_or_path = adapter_config.get("base_model_name_or_path")
+        if not isinstance(base_model_name_or_path, str) or not base_model_name_or_path:
+            raise ValueError("adapter_config.json is missing a valid base_model_name_or_path.")
+        base_model_path = Path(base_model_name_or_path)
+
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token_id is None:
@@ -322,11 +341,19 @@ def load_model_for_decoding(
             )
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        model_path,
+        base_model_path,
         torch_dtype=resolve_torch_dtype(dtype),
     )
+    if adapter_config is not None:
+        try:
+            from peft import PeftModel
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "This checkpoint is a LoRA adapter. Install training dependencies, including peft, before decoding it."
+            ) from exc
+        model = PeftModel.from_pretrained(model, model_path)
     model = model.to(resolved_device)
-    metadata = load_praact_vocab_metadata(model_path)
+    metadata = load_praact_vocab_metadata(base_model_path)
 
     return {
         "tokenizer": tokenizer,

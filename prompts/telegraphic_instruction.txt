@@ -1,0 +1,6 @@
+Transform this sentence into a telegraphic sentence used in Augmentative and Alternative Communication.
+Use short content words only.
+Avoid articles, auxiliary verbs, and unnecessary function words.
+
+Sentence: {sentence}
+Telegraphic:

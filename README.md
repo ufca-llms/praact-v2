@@ -12,6 +12,18 @@ python3 -m venv .venv312
 .venv312/bin/python -m pip install -e .
 ```
 
+Se preferir instalar via arquivos de requirements:
+
+```bash
+.venv312/bin/python -m pip install -r requirements.txt
+```
+
+Para treinamento, instale as dependencias extras:
+
+```bash
+.venv312/bin/python -m pip install -r requirements-training.txt
+```
+
 ## Como funciona
 
 O PRAACT parte da ideia de adaptar um modelo de linguagem causal para operar com um vocabulario de Comunicacao Aumentativa e Alternativa (CAA). Em vez de gerar livremente no vocabulario completo do modelo original, o sistema passa a trabalhar com um conjunto de keywords e termos pictograficos extraidos do acervo do Praact.
@@ -71,9 +83,10 @@ Essas metricas seguem o estilo da task ToPicto, comparando as hipoteses geradas 
 
 ## Como executar
 
-A CLI exposta pelo pacote possui tres subcomandos principais:
+A CLI exposta pelo pacote possui quatro subcomandos principais:
 
 - `expand`: expande o tokenizer/modelo com o vocabulario do Praact.
+- `train`: faz o fine-tuning supervisionado em pares `src -> tgt`.
 - `decode`: gera uma hipotese restrita ao vocabulario salvo em `praact_vocab.json`.
 - `evaluate`: avalia as hipoteses com metricas no estilo da task ToPicto.
 
@@ -93,7 +106,139 @@ outputs/Qwen--Qwen2.5-0.5B
 
 No final, o comando imprime um resumo com quantas keywords ja existiam e quantas foram adicionadas.
 
-### 2. Gerar uma hipotese para uma frase
+### 2. Treinar o modelo expandido
+
+O comando `train` faz supervised fine-tuning (SFT) em exemplos `src -> tgt`. O prompt de entrada e formatado antes da tokenizacao, a perda e mascarada na parte do prompt, e o modelo aprende apenas a prever a saida `tgt`. Por padrao, o treinamento usa LoRA, e em modelos instruct o ideal e ativar `--chat-template` para manter o formato esperado pelo tokenizer.
+
+#### Instalar dependencias de treino
+
+LoRA exige o pacote `peft`. Para instalar tudo o que o fluxo de treino precisa:
+
+```bash
+.venv312/bin/python -m pip install -r requirements-training.txt
+```
+
+#### Smoke test local no Mac
+
+Esse comando roda um teste curto usando um modelo pequeno e apenas uma amostra reduzida do dataset:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 .venv312/bin/praact train \
+  outputs/Qwen--Qwen2.5-0.5B-Instruct \
+  --train-json "data/starting kit text2picto/train.json" \
+  --valid-json "data/starting kit text2picto/valid.json" \
+  --output-dir outputs/train-smoke-qwen25-05b-instruct \
+  --prompt-file prompts/telegraphic_instruction.txt \
+  --chat-template \
+  --dtype fp32 \
+  --max-length 256 \
+  --epochs 1 \
+  --learning-rate 2e-4 \
+  --per-device-train-batch-size 2 \
+  --per-device-eval-batch-size 2 \
+  --gradient-accumulation-steps 4 \
+  --max-train-samples 256 \
+  --max-eval-samples 64 \
+  --logging-steps 10 \
+  --eval-steps 50 \
+  --save-steps 50 \
+  --lora-r 16 \
+  --lora-alpha 32 \
+  --lora-dropout 0.05 \
+  --gradient-checkpointing
+```
+
+#### Treino maior no Mac
+
+Para um teste mais representativo, mas ainda viavel localmente, aumente a amostragem:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 .venv312/bin/praact train \
+  outputs/Qwen--Qwen2.5-0.5B-Instruct \
+  --train-json "data/starting kit text2picto/train.json" \
+  --valid-json "data/starting kit text2picto/valid.json" \
+  --output-dir outputs/train-qwen25-05b-instruct-medium \
+  --prompt-file prompts/telegraphic_instruction.txt \
+  --chat-template \
+  --dtype fp32 \
+  --max-length 256 \
+  --epochs 1 \
+  --learning-rate 2e-4 \
+  --per-device-train-batch-size 2 \
+  --per-device-eval-batch-size 2 \
+  --gradient-accumulation-steps 4 \
+  --max-train-samples 2000 \
+  --max-eval-samples 256 \
+  --logging-steps 10 \
+  --eval-steps 100 \
+  --save-steps 100 \
+  --lora-r 16 \
+  --lora-alpha 32 \
+  --lora-dropout 0.05 \
+  --gradient-checkpointing
+```
+
+#### Treino completo
+
+O arquivo `data/starting kit text2picto/train.json` tem `59.278` exemplos de treino, e `data/starting kit text2picto/valid.json` tem `4.397` exemplos de validacao. Para usar o conjunto inteiro, basta remover `--max-train-samples` e `--max-eval-samples` do comando.
+
+Se o treino terminou rapido demais, o motivo mais provavel e justamente o uso desses limites.
+
+#### Argumentos que mais afetam custo e duracao
+
+- `--max-train-samples`: limita quantos exemplos do treino serao usados.
+- `--max-eval-samples`: limita quantos exemplos da validacao serao usados.
+- `--per-device-train-batch-size`: controla o batch por dispositivo.
+- `--gradient-accumulation-steps`: aumenta o batch efetivo sem exigir mais memoria de uma vez.
+- `--epochs`: controla quantas passadas pelo dataset serao feitas.
+- `--gradient-checkpointing`: reduz uso de memoria, normalmente ao custo de mais tempo.
+
+O checkpoint treinado e salvo no `--output-dir`. Depois disso, esse diretorio pode ser usado normalmente com `praact decode`, da mesma forma que um modelo expandido.
+
+#### Testar um checkpoint treinado
+
+Se o treino foi feito com LoRA, o `output-dir` salva um adapter. Ainda assim, ele pode ser usado diretamente com `praact decode`: o comando detecta o adapter, carrega automaticamente o modelo base e aplica o checkpoint treinado.
+
+Exemplo com uma frase:
+
+```bash
+.venv312/bin/praact decode outputs/train-smoke-qwen25-05b-instruct \
+  --prompt-file prompts/telegraphic_few_shot.txt \
+  --prompt "They are attacked by a bird" \
+  --chat-template \
+  --max-new-tokens 4 \
+  --dtype fp32 \
+  --device cpu
+```
+
+Exemplo em lote no conjunto de validacao:
+
+```bash
+.venv312/bin/praact decode outputs/train-smoke-qwen25-05b-instruct \
+  --prompt-file prompts/telegraphic_few_shot.txt \
+  --input-json "data/starting kit text2picto/valid.json" \
+  --output-json outputs/train-smoke-qwen25-05b-instruct_valid_predictions.json \
+  --chat-template \
+  --batch-size 8 \
+  --max-new-tokens 16 \
+  --dtype fp32 \
+  --device cpu
+```
+
+Depois disso, voce pode avaliar normalmente:
+
+```bash
+.venv312/bin/praact evaluate \
+  outputs/train-smoke-qwen25-05b-instruct_valid_predictions.json \
+  "data/starting kit text2picto/valid.json"
+```
+
+Atalhos prontos no repositorio:
+
+- [scripts/train_qwen25_05b_instruct_lora.sh](/Users/jayra/dev/praact-v2/scripts/train_qwen25_05b_instruct_lora.sh)
+- [scripts/train_qwen3_4b_instruct_lora.sh](/Users/jayra/dev/praact-v2/scripts/train_qwen3_4b_instruct_lora.sh)
+
+### 3. Gerar uma hipotese para uma frase
 
 Exemplo usando um prompt direto:
 
@@ -108,7 +253,7 @@ Telegraphic:" \
   --device cpu
 ```
 
-### 3. Gerar usando um prompt few-shot salvo em arquivo
+### 4. Gerar usando um prompt few-shot salvo em arquivo
 
 O repositorio inclui um prompt reutilizavel em:
 
@@ -128,7 +273,7 @@ Esse arquivo usa `{sentence}` como placeholder. Exemplo:
   --device cpu
 ```
 
-### 4. Gerar em lote a partir do dataset de validacao
+### 5. Gerar em lote a partir do dataset de validacao
 
 O modo em lote espera um JSON com itens contendo `id` e `src`, e grava um JSON contendo `id` e `hyp`.
 
@@ -146,7 +291,7 @@ Exemplo com o `valid.json`:
   --device cpu
 ```
 
-### 5. Avaliar as predicoes
+### 6. Avaliar as predicoes
 
 Depois de gerar o arquivo de predicoes, voce pode avaliar contra o arquivo de referencia:
 
@@ -163,7 +308,7 @@ A saida e um JSON com:
 - `meteor`
 - `pictoer`
 
-### 6. Modelos instruct
+### 7. Modelos instruct
 
 Para modelos instruction-tuned, use `--chat-template` no `decode`:
 
