@@ -134,6 +134,23 @@ def pictoer_score(
     return (total_errors / total_reference_tokens) * 100
 
 
+def wer_score(
+    hypotheses: list[list[str]],
+    references: list[list[str]],
+) -> float:
+    total_errors = 0
+    total_reference_tokens = 0
+
+    for hypothesis_tokens, reference_tokens in zip(hypotheses, references, strict=False):
+        total_errors += edit_distance(hypothesis_tokens, reference_tokens)
+        total_reference_tokens += len(reference_tokens)
+
+    if total_reference_tokens == 0:
+        return 0.0
+
+    return total_errors / total_reference_tokens
+
+
 def align_predictions_with_references(
     predictions: list[dict[str, str]],
     references: list[dict[str, str]],
@@ -177,10 +194,16 @@ def evaluate_predictions(
         for hypothesis, reference in zip(hypothesis_tokens, reference_tokens, strict=False)
     ) / len(hypothesis_tokens)
     pictoer = pictoer_score(hypothesis_tokens, reference_tokens)
+    wer = wer_score(hypothesis_tokens, reference_tokens)
 
     return {
         "num_samples": len(hypotheses_text),
         "sacrebleu": bleu.score,
         "meteor": meteor,
         "pictoer": pictoer,
+        "leaderboard": {
+            "wer": wer,
+            "bleu": bleu.score,
+            "meteor": meteor / 100.0,
+        },
     }
