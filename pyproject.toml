@@ -27,6 +27,7 @@ training = [
 
 [project.scripts]
 praact = "praact.cli:main"
+praact-pictogram = "praact_pictogram_prediction.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
