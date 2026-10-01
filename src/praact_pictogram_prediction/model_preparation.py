@@ -27,7 +27,7 @@ SPECIAL_TOKENS = {
 }
 
 
-@dataclass(frozen=True)
+@dataclass
 class PictogramEntry:
     label: str
     token: str
@@ -452,6 +452,34 @@ def prepare_pictogram_prediction_model(
 
     tokenizer = build_pictogram_tokenizer(entries)
     resize_token_embeddings_without_random_init(model, len(tokenizer))
+
+    # Gemma 2/4 keep the original tokenizer's special-token and padding
+    # indices in their configuration. After replacing the vocabulary, those
+    # indices must point into the resized pictogram vocabulary.
+    input_embeddings = model.get_input_embeddings()
+    if input_embeddings is not None and hasattr(input_embeddings, "padding_idx"):
+        input_embeddings.padding_idx = tokenizer.pad_token_id
+
+    for config in (
+        model.config,
+        getattr(model.config, "text_config", None),
+    ):
+        if config is None:
+            continue
+        if hasattr(config, "vocab_size"):
+            config.vocab_size = len(tokenizer)
+        if hasattr(config, "pad_token_id"):
+            config.pad_token_id = tokenizer.pad_token_id
+        if hasattr(config, "bos_token_id"):
+            config.bos_token_id = tokenizer.bos_token_id
+        if hasattr(config, "eos_token_id"):
+            config.eos_token_id = tokenizer.eos_token_id
+
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
+        model.generation_config.bos_token_id = tokenizer.bos_token_id
+        model.generation_config.eos_token_id = tokenizer.eos_token_id
+
     resolved_entries = entries_with_token_ids(tokenizer, entries)
     initialize_replaced_token_weights(
         model=model,
@@ -473,7 +501,6 @@ def prepare_pictogram_prediction_model(
         prefix_space=prefix_space,
         entries=resolved_entries,
     )
-
     return {
         "class_count": len(resolved_entries),
         "vocabulary_size": len(tokenizer),
@@ -515,9 +542,23 @@ def score_pictogram_tokens(
     )
     model = model.to(resolved_device)
 
-    encoded_prompt = tokenizer(prompt, return_tensors="pt")
+    prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=False)
+    if not prompt_token_ids:
+        raise ValueError(
+            "The prompt produced no pictogram tokens. Use space-separated IDs, "
+            "for example: '6632 5441 6456'."
+        )
     encoded_prompt = {
-        name: tensor.to(resolved_device) for name, tensor in encoded_prompt.items()
+        "input_ids": torch.tensor(
+            [prompt_token_ids],
+            dtype=torch.long,
+            device=resolved_device,
+        ),
+        "attention_mask": torch.ones(
+            (1, len(prompt_token_ids)),
+            dtype=torch.long,
+            device=resolved_device,
+        ),
     }
     allowed_token_ids = [int(token_id) for token_id in metadata["allowed_token_ids"]]
 

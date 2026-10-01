@@ -26,6 +26,7 @@ Este documento resume os modelos testados com o fluxo de `src/praact_pictogram_p
 | DeepSeek-R1-Distill-Qwen-1.5B | 4.2242 | 68.32 | 0.3081 | 0.4415 | 0.4996 | 0.5742 | 0.4014 | 274.49 | 5 |
 | Gemma-4-E2B 3 épocas | 4.4148 | 82.67 | 0.3265 | 0.4644 | 0.5235 | 0.5981 | 0.4208 | 253.72 | 5 |
 | Gemma-4-E2B 6 épocas | 8.6322 | 5609.50 | 0.3174 | 0.4370 | 0.4884 | 0.5500 | 0.4013 | 454.81 | 6 |
+| Gemma-4-E2B-it 4 épocas | 4.9131 | 136.06 | 0.3124 | 0.4433 | 0.4999 | 0.5726 | 0.4037 | 274.63 | 5 |
 | Qwen2.5-3B-Instruct v1 | 4.0042 | 54.83 | 0.3226 | 0.4641 | 0.5224 | 0.5981 | 0.4208 | 209.29 | 4 |
 | Qwen2.5-3B-Instruct v2 | 4.5045 | 90.43 | 0.2800 | 0.4124 | 0.4696 | 0.5480 | 0.3734 | 354.12 | 7 |
 | Qwen2.5-3B-Instruct v3 | 4.7216 | 112.34 | 0.2686 | 0.4006 | 0.4567 | 0.5304 | 0.3608 | 488.90 | 8 |
@@ -43,16 +44,34 @@ Todos os `evaluate` usaram 4.364 exemplos válidos, 33 exemplos ignorados e 27.6
 - Ponto positivo: melhor equilíbrio entre qualidade e tamanho.
 - Ponto negativo: exige aceitar licença/acesso no Hugging Face.
 
-### Gemma-4-E2B
+### Gemma-4-E2B-it
 
-- Modelo base: `google/gemma-4-E2B`.
+- Modelo base: `google/gemma-4-E2B-it`.
 - Característica: modelo Gemma 4 de geração condicional, com vocabulário/text config adaptado ao tokenizer de pictogramas. O experimento exigiu correção manual dos tokens especiais (`pad=0`, `bos=2`, `eos=3`) dentro do `config.json`.
 - Treino base: `bf16`, `--epochs 1`, `--learning-rate 5e-5`, `--weight-decay 0.01`, `--warmup-ratio 0.03`, `--max-length 128`; para 80 GB de VRAM foram usados batches maiores, como `--per-device-train-batch-size 32`, `--per-device-eval-batch-size 64`, `--gradient-accumulation-steps 1`.
 - Resultado base: ficou muito forte, praticamente empatado com o Gemma 2. Teve `loss` 3.8631, `perplexity` 47.61, `accuracy@1` 0.3334 e `accuracy@10` 0.6140.
 - Resultado com 3 épocas: piorou em loss/perplexity e ranking médio, apesar de manter Acc@1 razoável. Indica que mais treino começou a prejudicar a generalização.
 - Resultado com 6 épocas: degradou bastante, com perplexity 5609.50 e queda forte em Acc@10. Esse regime não é recomendado.
+- Resultado com 4 épocas: `loss` 4.9131, `perplexity` 136.06, `accuracy@1` 0.3124, `accuracy@10` 0.5726, `mrr` 0.4037 e `mean_rank` 274.63. O resultado ficou abaixo do Gemma 4 base e confirmou a degradação observada com mais épocas.
 - Ponto positivo: o treino base de 1 época é um dos melhores resultados gerais.
-- Ponto negativo: mais épocas pioraram o modelo; o melhor uso foi o treinamento curto.
+- Ponto negativo: mais épocas pioraram o modelo; o melhor uso foi o treinamento curto. O modelo Instruct de 4 épocas não deve ser escolhido em preferência ao Gemma 4 base.
+
+#### Score top-10 do Gemma-4-E2B-it
+
+Prompt utilizado: `6632 5441 6456`.
+
+| Posição | Pictogram ID | Texto | Probabilidade |
+|---:|---:|---|---:|
+| 1 | 2627 | one | 0.27734375 |
+| 2 | 7074 | of | 0.21679688 |
+| 3 | 5374 | some | 0.09619141 |
+| 4 | 6906 | that one | 0.09033203 |
+| 5 | 8474 | a | 0.05151367 |
+| 6 | 11712 | of the | 0.04541016 |
+| 7 | 11351 | that | 0.03759766 |
+| 8 | 29839 | nothing | 0.02758789 |
+| 9 | 11377 | but | 0.02429199 |
+| 10 | 8476 | the | 0.02282715 |
 
 ### Llama-3.2-3B-Instruct
 
@@ -129,21 +148,23 @@ A conclusão dessas variantes é que aumentar ou alterar demais o treino não me
 | Gemma-4-E2B base | 1 | 3.8631 | 47.61 | 0.3334 | 0.6140 | 0.4306 | 195.33 | Melhor configuração do Gemma 4. |
 | Gemma-4-E2B 3 épocas | 3 | 4.4148 | 82.67 | 0.3265 | 0.5981 | 0.4208 | 253.72 | Piorou a generalização. |
 | Gemma-4-E2B 6 épocas | 6 | 8.6322 | 5609.50 | 0.3174 | 0.5500 | 0.4013 | 454.81 | Forte degradação; não recomendado. |
+| Gemma-4-E2B-it 4 épocas | 4 | 4.9131 | 136.06 | 0.3124 | 0.5726 | 0.4037 | 274.63 | Pior que o Gemma 4 base; não recomendado. |
 
-O melhor resultado do Gemma 4 foi o treino base de 1 época. Os treinos de 3 e 6 épocas indicam overfitting ou degradação do ajuste para esta tarefa.
+O melhor resultado do Gemma 4 foi o treino base de 1 época. Os treinos de 3, 4 e 6 épocas indicam overfitting ou degradação do ajuste para esta tarefa.
 
 ## Arquivos de resultado
 
 - Qwen: `outputs/qwen-pictogram-results/`
 - Gemma: `outputs/imported-pictogram-results/gemma-pictogram-results/`
 - Gemma 4: `outputs/imported-pictogram-results/gemma4-pictogram-results/`
+- Gemma 4 E2B Instruct: `outputs/gemma-candidates-results/Gemma-4-E2B-it-4ep_evaluate.json` e `outputs/gemma-candidates-results/Gemma-4-E2B-it-4ep_score.json`
 - Llama: `outputs/imported-pictogram-results/llama-pictogram-results/`
 - DeepSeek: `outputs/imported-pictogram-results/deepseek-pictogram-results/`
 - SmolLM3: `outputs/imported-pictogram-results/smollm-pictogram-results/`
 
 ## Recomendação
 
-Para seguir com apenas um modelo, o melhor candidato continua sendo o `Gemma-2-2B-it`. O `Gemma-4-E2B` base ficou muito próximo e é a melhor alternativa dentro dos novos testes, mas os treinos de 3 e 6 épocas não devem ser usados. O `Llama-3.2-3B-Instruct` ficou como a alternativa de maior qualidade depois dos Gemma. Se a licença/acesso do Gemma ou Llama for um problema, o `SmolLM3-3B` vira uma alternativa muito boa por ser Apache-2.0. Se a prioridade for continuar dentro da família Qwen, use o `Qwen2.5-3B-Instruct` principal, não as variantes v2/v3.
+Para seguir com apenas um modelo, o melhor candidato continua sendo o `Gemma-2-2B-it`. O `Gemma-4-E2B` base ficou muito próximo e é a melhor alternativa dentro dos testes Gemma; o `Gemma-4-E2B-it` treinado por 4 épocas apresentou degradação e não deve ser usado em preferência ao modelo base. O `Llama-3.2-3B-Instruct` ficou como a alternativa de maior qualidade depois dos Gemma. Se a licença/acesso do Gemma ou Llama for um problema, o `SmolLM3-3B` vira uma alternativa muito boa por ser Apache-2.0. Se a prioridade for continuar dentro da família Qwen, use o `Qwen2.5-3B-Instruct` principal, não as variantes v2/v3.
 
 
 | Modelo | Característica | Parâmetros principais | Loss | Perplexity | Accuracy@1 | Accuracy@10 | MRR | Mean rank | Median rank | Avaliação |
