@@ -37,6 +37,12 @@ def parse_args() -> argparse.Namespace:
         default=Path("data/data/arasaac_en.json"),
         help="ARASAAC vocabulary used to display pictogram names.",
     )
+    parser.add_argument(
+        "--model",
+        action="append",
+        metavar="NAME=PATH",
+        help="Model to analyze. Repeat this option for multiple models.",
+    )
     parser.add_argument("--top-k", type=int, default=25)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--dtype", choices=("bf16", "fp16"), default="bf16")
@@ -363,6 +369,8 @@ def score_model(
     )
 
     print(f"[{model_name}] arquivos gravados em {output_dir}")
+    del model
+    torch.cuda.empty_cache()
 
 
 args = parse_args()
@@ -371,10 +379,20 @@ if not examples:
     raise RuntimeError(f"No labeled examples found in {args.input_json}.")
 pictogram_names = load_pictogram_names(args.arasaac_json, examples)
 
-models = {
-    "Gemma2": Path(os.environ["GEMMA2_TRAIN_DIR"]),
-    "Gemma4": Path(os.environ["GEMMA4_TRAIN_DIR"]),
-}
+if args.model:
+    models: dict[str, Path] = {}
+    for model_spec in args.model:
+        if "=" not in model_spec:
+            raise ValueError("Each --model value must have the form NAME=PATH.")
+        model_name, model_path = model_spec.split("=", 1)
+        if not model_name or not model_path:
+            raise ValueError("Each --model value must have the form NAME=PATH.")
+        models[model_name] = Path(model_path)
+else:
+    models = {
+        "Gemma2": Path(os.environ["GEMMA2_TRAIN_DIR"]),
+        "Gemma4": Path(os.environ["GEMMA4_TRAIN_DIR"]),
+    }
 
 for model_name, model_dir in models.items():
     score_model(
