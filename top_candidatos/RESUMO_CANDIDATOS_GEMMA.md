@@ -1,4 +1,4 @@
-# Resumo dos candidatos — Gemma 2 e Gemma 4
+# Resumo dos candidatos — todos os modelos
 
 Análise realizada com 50 exemplos de `valid.json`, usando os 25 candidatos mais prováveis para o próximo pictograma.
 
@@ -91,3 +91,60 @@ Para uma aplicação que utiliza uma lista ampla de alternativas, o Gemma 4 é a
 | Gemma 4 | `outputs/gemma-candidates-results/full-base/Gemma4_top25_full_base.md` | `outputs/gemma-candidates-results/full-base/Gemma4_top25_full_base.json` |
 
 Os arquivos detalhados contêm, para cada exemplo, os 25 pictogramas candidatos, seus IDs, textos, probabilidades e a posição da resposta correta quando ela aparece no top-25.
+
+## Comparação dos modelos adicionais — base completa
+
+Além dos resultados do Gemma 2 e do Gemma 4, foram analisados os cinco modelos treinados em 4 épocas. A análise usou `valid.json`, top-25 candidatos, BF16 e batch de inferência 512.
+
+Nos modelos desta execução, 4.375 exemplos foram processados. Os 22 exemplos restantes foram ignorados porque não possuíam contexto tokenizável no vocabulário preparado; portanto, as porcentagens abaixo usam 4.375 como denominador.
+
+| Modelo | Parâmetros | Exemplos | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Hit@25 | Rank médio* | MRR** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Qwen2.5-3B-Instruct — 4 épocas | 3B | 4.375 | 26,10% (1.142) | 35,82% (1.567) | 40,00% (1.750) | 45,05% (1.971) | **53,44% (2.338)** | 4,63 | **0,3252** |
+| Llama 3.2 3B Instruct — 4 épocas | 3B | 4.375 | **25,44% (1.113)** | 34,58% (1.513) | 38,72% (1.694) | 44,48% (1.946) | 52,82% (2.311) | 4,73 | 0,3179 |
+| SmolLM3-3B — 4 épocas | 3B | 4.375 | 25,42% (1.112) | 34,17% (1.495) | 38,33% (1.677) | 43,93% (1.922) | 50,26% (2.199) | **4,30** | 0,3136 |
+| Qwen2.5-1.5B-Instruct — 4 épocas | 1,5B | 4.375 | 25,33% (1.108) | **35,02% (1.532)** | **38,97% (1.705)** | 44,32% (1.939) | 52,25% (2.286) | 4,65 | 0,3172 |
+| DeepSeek-R1-Distill-Qwen-1.5B — 4 épocas | 1,5B | 4.375 | 22,31% (976) | 30,90% (1.352) | 35,09% (1.535) | 41,23% (1.804) | 49,39% (2.161) | 4,91 | 0,2847 |
+
+\* Rank médio calculado apenas nos exemplos em que a resposta correta apareceu no top-25. Quanto menor, melhor.  
+\*\* MRR calculado sobre os 4.375 exemplos processados; exemplos sem a resposta no top-25 contribuem com zero.
+
+### Interpretação dos modelos adicionais
+
+| Modelo | Pontos positivos | Pontos negativos |
+|---|---|---|
+| Qwen2.5-3B-Instruct | Melhor resultado geral: maior Hit@25, Hit@5, Hit@10 e MRR. | Não teve o melhor rank médio condicionado aos acertos. |
+| Llama 3.2 3B Instruct | Maior Hit@1 entre os cinco modelos novos e segunda maior cobertura no Hit@25. | Ficou abaixo do Qwen2.5-3B nas métricas de cobertura a partir do top-3. |
+| SmolLM3-3B | Melhor rank médio quando a resposta correta aparece. | Cobertura inferior aos dois Qwen e ao Llama. |
+| Qwen2.5-1.5B-Instruct | Desempenho próximo dos modelos 3B; melhor Hit@3 e Hit@5 entre os cinco modelos novos. | Fica atrás do Qwen2.5-3B em Hit@1, Hit@10, Hit@25 e MRR. |
+| DeepSeek-R1-Distill-Qwen-1.5B | Modelo menor e ainda alcança quase 50% de Hit@25. | Pior resultado nas métricas de cobertura e menor MRR. |
+
+### Comparação geral entre todos os modelos
+
+Considerando também Gemma 2 e Gemma 4, o **Qwen2.5-3B-Instruct** é o melhor modelo para uma aplicação que utiliza até 25 candidatos: alcançou 53,44% de Hit@25 e MRR 0,3252. Ele supera o Gemma 4 no Hit@25 (50,92%) e no MRR (0,3038).
+
+| Modelo | Exemplos | Hit@1 | Hit@3 | Hit@5 | Hit@10 | Hit@25 | Rank médio | MRR |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Qwen2.5-3B-Instruct | 4.375 | **26,10%** | 35,82% | **40,00%** | **45,05%** | **53,44%** | 4,63 | **0,3252** |
+| Llama 3.2 3B Instruct | 4.375 | 25,44% | 34,58% | 38,72% | 44,48% | 52,82% | 4,73 | 0,3179 |
+| Qwen2.5-1.5B-Instruct | 4.375 | 25,33% | **35,02%** | 38,97% | 44,32% | 52,25% | 4,65 | 0,3172 |
+| Gemma 4 E2B Instruct | 4.397 | 24,29% | 33,09% | 37,50% | 42,94% | 50,92% | 4,70 | 0,3038 |
+| SmolLM3-3B | 4.375 | 25,42% | 34,17% | 38,33% | 43,93% | 50,26% | **4,30** | 0,3136 |
+| Gemma 2 2B Instruct | 4.397 | 24,11% | 33,18% | 37,53% | 42,76% | 48,94% | 4,30 | 0,3027 |
+| DeepSeek-R1-Distill-Qwen-1.5B | 4.375 | 22,31% | 30,90% | 35,09% | 41,23% | 49,39% | 4,91 | 0,2847 |
+
+Observação: Gemma 2 e Gemma 4 foram calculados anteriormente com 4.397 exemplos, enquanto os cinco modelos novos tiveram 22 exemplos sem contexto tokenizável e foram calculados com 4.375. As comparações são úteis, mas não são perfeitamente controladas pelo mesmo subconjunto.
+
+O **Gemma 4 E2B Instruct** continua competitivo, mas fica abaixo do Qwen2.5-3B nesta análise completa. O **Qwen2.5-1.5B-Instruct** é a alternativa mais interessante quando se deseja reduzir o tamanho do modelo sem perder muito desempenho.
+
+Para priorizar uma lista ampla de alternativas, recomenda-se o Qwen2.5-3B. Para priorizar o rank médio entre respostas encontradas, o SmolLM3-3B teve o melhor resultado entre os cinco modelos novos.
+
+### Arquivos dos modelos adicionais
+
+| Modelo | Markdown detalhado | JSON detalhado |
+|---|---|---|
+| Llama 3.2 3B Instruct | `outputs/all-models-4ep-candidates/Llama-3.2-3B-Instruct_top25_full_base.md` | `outputs/all-models-4ep-candidates/Llama-3.2-3B-Instruct_top25_full_base.json` |
+| Qwen2.5 3B Instruct | `outputs/all-models-4ep-candidates/Qwen2.5-3B-Instruct_top25_full_base.md` | `outputs/all-models-4ep-candidates/Qwen2.5-3B-Instruct_top25_full_base.json` |
+| SmolLM3-3B | `outputs/all-models-4ep-candidates/SmolLM3-3B_top25_full_base.md` | `outputs/all-models-4ep-candidates/SmolLM3-3B_top25_full_base.json` |
+| Qwen2.5 1.5B Instruct | `outputs/all-models-4ep-candidates/Qwen2.5-1.5B-Instruct_top25_full_base.md` | `outputs/all-models-4ep-candidates/Qwen2.5-1.5B-Instruct_top25_full_base.json` |
+| DeepSeek-R1-Distill-Qwen 1.5B | `outputs/all-models-4ep-candidates/DeepSeek-R1-Distill-Qwen-1.5B_top25_full_base.md` | `outputs/all-models-4ep-candidates/DeepSeek-R1-Distill-Qwen-1.5B_top25_full_base.json` |

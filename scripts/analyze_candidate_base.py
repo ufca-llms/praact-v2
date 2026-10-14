@@ -166,6 +166,10 @@ def score_model(
         device=device,
     )
     metadata_entries = metadata["entries"]
+    pictogram_to_token_id = {
+        str(entry["pictogram_id"]): int(entry["token_id"])
+        for entry in metadata_entries
+    }
     pad_token_id = tokenizer.pad_token_id
     if pad_token_id is None:
         pad_token_id = 0
@@ -178,16 +182,43 @@ def score_model(
         start=1,
     ):
         batch_examples = examples[start : start + batch_size]
-        encoded_prompts = [
-            tokenizer.encode(
-                " ".join(example["pictos"][:-1]),
-                add_special_tokens=False,
+        # The prepared tokenizer is a custom pictogram vocabulary. Resolve
+        # IDs directly through its metadata instead of re-tokenizing the raw
+        # numeric strings; this works consistently across Llama, Qwen, Gemma
+        # and SmolLM tokenizers.
+        encoded_pairs = [
+            (
+                example,
+                [
+                    pictogram_to_token_id[pictogram_id]
+                    for pictogram_id in example["pictos"][:-1]
+                ]
+                if all(
+                    pictogram_id in pictogram_to_token_id
+                    for pictogram_id in example["pictos"][:-1]
+                )
+                else [],
             )
             for example in batch_examples
         ]
-
-        if any(not token_ids for token_ids in encoded_prompts):
-            raise ValueError("At least one prompt produced no tokens.")
+        empty_prompt_examples = [
+            example["source_index"] for example, token_ids in encoded_pairs if not token_ids
+        ]
+        if empty_prompt_examples:
+            print(
+                f"[{model_name}] ignorando {len(empty_prompt_examples)} exemplo(s) "
+                f"sem contexto tokenizável: {empty_prompt_examples[:10]}",
+                flush=True,
+            )
+        encoded_pairs = [
+            (example, token_ids)
+            for example, token_ids in encoded_pairs
+            if token_ids
+        ]
+        if not encoded_pairs:
+            continue
+        batch_examples = [example for example, _ in encoded_pairs]
+        encoded_prompts = [token_ids for _, token_ids in encoded_pairs]
 
         max_length = max(len(token_ids) for token_ids in encoded_prompts)
         input_ids = torch.full(
