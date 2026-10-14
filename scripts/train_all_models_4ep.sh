@@ -14,6 +14,7 @@ PYTHON_BIN="${PYTHON_BIN:-.venv312/bin/python}"
 DATA_ROOT="${DATA_ROOT:-data/data}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/all-models-4ep}"
 RESULTS_DIR="${RESULTS_DIR:-outputs/all-models-4ep-candidates}"
+NUM_GPUS="${NUM_GPUS:-2}"
 
 TRAIN_JSON="$DATA_ROOT/starting kit text2picto/train.json"
 VALID_JSON="$DATA_ROOT/starting kit text2picto/valid.json"
@@ -35,12 +36,24 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 1
 fi
 
+if [[ "$NUM_GPUS" -gt 1 ]]; then
+  TRAIN_LAUNCH=(
+    "$PYTHON_BIN" -m torch.distributed.run
+    --standalone
+    --nproc_per_node "$NUM_GPUS"
+  )
+else
+  TRAIN_LAUNCH=("$PYTHON_BIN")
+fi
+
 declare -a MODEL_SPECS=(
-  "Llama-3.2-3B-Instruct|meta-llama/Llama-3.2-3B-Instruct|128|256"
-  "Qwen2.5-3B-Instruct|Qwen/Qwen2.5-3B-Instruct|128|256"
-  "SmolLM3-3B|HuggingFaceTB/SmolLM3-3B|128|256"
-  "Qwen2.5-1.5B-Instruct|Qwen/Qwen2.5-1.5B-Instruct|256|512"
-  "DeepSeek-R1-Distill-Qwen-1.5B|deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B|256|512"
+  # These are per-GPU values. With NUM_GPUS=2, the effective batches are
+  # 128/256 for 3B and 256/512 for 1.5B, without overloading one A100.
+  "Llama-3.2-3B-Instruct|meta-llama/Llama-3.2-3B-Instruct|64|128"
+  "Qwen2.5-3B-Instruct|Qwen/Qwen2.5-3B-Instruct|64|128"
+  "SmolLM3-3B|HuggingFaceTB/SmolLM3-3B|64|128"
+  "Qwen2.5-1.5B-Instruct|Qwen/Qwen2.5-1.5B-Instruct|128|256"
+  "DeepSeek-R1-Distill-Qwen-1.5B|deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B|128|256"
 )
 
 declare -a ANALYSIS_MODELS=()
@@ -75,7 +88,7 @@ train_one() {
   fi
 
   if [[ ! -f "$marker" ]]; then
-    "$PYTHON_BIN" -m praact_pictogram_prediction.cli train \
+    "${TRAIN_LAUNCH[@]}" -m praact_pictogram_prediction.cli train \
       "$base_dir" \
       --train-json "$TRAIN_JSON" \
       --valid-json "$VALID_JSON" \
